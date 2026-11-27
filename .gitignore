@@ -1,0 +1,4 @@
+# Never commit patient data
+*.xlsx
+*.xls
+*.csv

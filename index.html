@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSA Lab Correlation</title>
+<meta name="description" content="Upload lab results and prostate cancer diagnosis dates (Excel) to analyze how PSA relates to blood sugar, lipids, blood cells and other blood tests. All data stays in your browser.">
+<script src="vendor/plotly.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f3f2ee;
+  --text-1: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6;   /* blue  */
+  --s2: #eb6834;   /* orange */
+  --pos: #e34948;  /* diverging: positive (red) */
+  --neg: #2a78d6;  /* diverging: negative (blue) */
+  --neutral: #c3c2b7;
+  --seq-1: #86b6ef; --seq-2: #3987e5; --seq-3: #1c5cab; --seq-4: #0d366b;
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --good: #006300;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #242422;
+    --text-1: #f0efec; --text-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --pos: #e66767; --neg: #3987e5; --neutral: #4a4a46;
+    --seq-1: #184f95; --seq-2: #2a78d6; --seq-3: #5598e7; --seq-4: #9ec5f4;
+    --accent: #3987e5; --good: #0ca30c; --critical: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #242422;
+  --text-1: #f0efec; --text-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --pos: #e66767; --neg: #3987e5; --neutral: #4a4a46;
+  --seq-1: #184f95; --seq-2: #2a78d6; --seq-3: #5598e7; --seq-4: #9ec5f4;
+  --accent: #3987e5; --good: #0ca30c; --critical: #e66767;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--page); color: var(--text-1);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+header.top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+h1 { font-size: 24px; line-height: 1.3; margin: 0 0 4px; letter-spacing: .01em; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-2); font-weight: 600; }
+.sub { color: var(--text-2); margin: 0; }
+.small { font-size: 13px; color: var(--text-2); }
+.muted { color: var(--muted); }
+button, select, input { font: inherit; color: inherit; }
+.btn {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn:disabled { opacity: .5; cursor: default; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; margin-bottom: 16px; min-width: 0;
+}
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid2 > .card { margin-bottom: 0; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } header.top { flex-direction: column; } }
+.drop {
+  display: block; border: 1.5px dashed var(--axis); border-radius: 10px; padding: 18px;
+  text-align: center; cursor: pointer; transition: background .15s, border-color .15s;
+}
+.drop:hover, .drop.over { background: var(--surface-2); border-color: var(--accent); }
+.drop input { display: none; }
+.drop .big { font-weight: 600; }
+.drop.done { border-style: solid; border-color: var(--good); }
+.fileinfo { margin-top: 10px; font-size: 13px; color: var(--text-2); min-height: 1.6em; overflow-wrap: anywhere; }
+.fileinfo .ok { color: var(--good); font-weight: 600; }
+.fileinfo .err { color: var(--critical); font-weight: 600; }
+.step { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; margin-right: 6px; vertical-align: 1px; }
+.settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; }
+.field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+.field select, .field input {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--page);
+}
+.field .row { display: flex; gap: 6px; align-items: center; }
+details summary { cursor: pointer; color: var(--text-2); font-size: 14px; margin-top: 12px; }
+details .settings { margin-top: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.kpi .v { font-size: 26px; font-weight: 600; line-height: 1.2; }
+.kpi .l { font-size: 13px; color: var(--text-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.chip { border: 1px solid var(--border); background: var(--page); border-radius: 999px; padding: 3px 12px; font-size: 13px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--text-1); color: var(--surface); border-color: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.chart { width: 100%; min-height: 200px; }
+.tablewrap { overflow-x: auto; max-height: 520px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-2); font-weight: 600; z-index: 1; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.sig { font-weight: 600; }
+.badge { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border); color: var(--text-2); }
+.summary ul { margin: 6px 0 0; padding-left: 20px; }
+.summary li { margin: 4px 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.toolbar .right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); max-width: 100%; }
+.hidden { display: none !important; }
+.status { padding: 10px 14px; border-radius: 8px; background: var(--surface-2); color: var(--text-2); margin-bottom: 16px; font-size: 14px; }
+.notice { font-size: 13px; color: var(--text-2); border-left: 3px solid var(--axis); padding: 4px 10px; margin: 8px 0 0; }
+footer { margin-top: 32px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>PSA × Blood Test Correlation Analyzer for Prostate Cancer Patients</h1>
+      <p class="sub">Upload two Excel files — lab results and diagnosis dates — to automatically compute how PSA correlates with blood sugar, lipids, blood cells, liver/kidney function and other blood tests.</p>
+      <p class="small">🔒 All data is processed only in your browser and is never uploaded to any server.</p>
+    </div>
+    <button class="btn" id="themeBtn" type="button" title="Switch color theme">Theme: Auto</button>
+  </header>
+
+  <section class="grid2">
+    <div class="card">
+      <h2><span class="step">1</span>Lab results (Excel)</h2>
+      <p class="small">Required: patient ID, specimen, test name, date, result. Non-blood specimens are excluded.</p>
+      <label class="drop" id="dropLab">
+        <input type="file" id="fileLab" accept=".xlsx,.xls,.csv">
+        <div class="big">Click to choose a file, or drag it here</div>
+        <div class="small">.xlsx / .xls / .csv</div>
+      </label>
+      <div class="fileinfo" id="infoLab"></div>
+    </div>
+    <div class="card">
+      <h2><span class="step">2</span>Diagnosis dates (Excel)</h2>
+      <p class="small">Required: patient ID and first prostate cancer diagnosis date. If there are several sheets, the one with a diagnosis-date column is picked automatically.</p>
+      <label class="drop" id="dropDx">
+        <input type="file" id="fileDx" accept=".xlsx,.xls,.csv">
+        <div class="big">Click to choose a file, or drag it here</div>
+        <div class="small">.xlsx / .xls / .csv</div>
+      </label>
+      <div class="fileinfo" id="infoDx"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2><span class="step">3</span>Analysis settings</h2>
+    <div class="settings">
+      <div class="field"><label for="optPsa">PSA test</label><select id="optPsa"><option>PSA</option></select></div>
+      <div class="field"><label for="optWin">Pairing window (± days around PSA)</label><input id="optWin" type="number" min="0" max="365" value="7"></div>
+      <div class="field"><label for="optPeriod">Period (relative to diagnosis)</label>
+        <select id="optPeriod">
+          <option value="all">All time</option>
+          <option value="pre">Before diagnosis only</option>
+          <option value="post">On/after diagnosis only</option>
+          <option value="y1">Within ±1 year of diagnosis</option>
+          <option value="custom">Custom…</option>
+        </select></div>
+      <div class="field hidden" id="customWrap"><label>Custom range (days; negative = before diagnosis)</label>
+        <div class="row"><input id="optFrom" type="number" value="-365"><span>to</span><input id="optTo" type="number" value="365"></div></div>
+      <div class="field"><label for="optMode">Unit of analysis</label>
+        <select id="optMode">
+          <option value="pair">Every pair (all measurements)</option>
+          <option value="patient">One point per patient (median)</option>
+        </select></div>
+      <div class="field"><label for="optMinN">Minimum sample size</label><input id="optMinN" type="number" min="3" value="10"></div>
+    </div>
+    <details>
+      <summary>Column mapping (auto-detected; adjust if needed)</summary>
+      <div class="settings" id="mapLab"></div>
+      <div class="settings" id="mapDx" style="margin-top:12px"></div>
+      <div class="settings" style="margin-top:12px">
+        <div class="field"><label for="optBlood">Blood specimen code</label><input id="optBlood" value="B"></div>
+      </div>
+    </details>
+  </section>
+
+  <div class="status" id="status">Please upload both Excel files.</div>
+
+  <div id="results" class="hidden">
+    <div class="kpis" id="kpis"></div>
+
+    <section class="card summary">
+      <h2>Automatic summary</h2>
+      <div id="summary"></div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <div>
+          <h2>Correlation of each blood test with PSA</h2>
+          <p class="small">Spearman rank correlation ρ. Click a bar to see detailed charts for that test below.</p>
+        </div>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="legend">
+        <span><i style="background:var(--pos)"></i>Positive (p &lt; 0.05)</span>
+        <span><i style="background:var(--neg)"></i>Negative (p &lt; 0.05)</span>
+        <span><i style="background:var(--neutral)"></i>Not significant</span>
+      </div>
+      <div id="chartBar" class="chart"></div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2>Results table</h2>
+        <div class="right"><button class="btn" id="dlTable" type="button">Download results (CSV)</button></div>
+      </div>
+      <div class="tablewrap"><table id="tbl"></table></div>
+      <p class="notice">ρ: Spearman correlation; r (log PSA): Pearson correlation using log10(PSA); q: p-value after Benjamini–Hochberg multiple-comparison correction. Strength: |ρ| &lt; 0.1 negligible, 0.1–0.3 weak, 0.3–0.5 moderate, ≥ 0.5 strong.</p>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2 id="detailTitle">PSA × test</h2>
+        <div class="right">
+          <select id="selTest" aria-label="Choose a test"></select>
+          <button class="btn" id="dlPairs" type="button">Download paired data (CSV)</button>
+        </div>
+      </div>
+      <div class="grid2">
+        <div><h3>Scatter plot (PSA on log scale)</h3><div id="chartScatter" class="chart"></div></div>
+        <div><h3 id="boxTitle">Distribution by PSA group</h3><div id="chartBox" class="chart"></div></div>
+      </div>
+      <h3 style="margin-top:16px">Trend relative to diagnosis (3-month bins, median and IQR; 0 = diagnosis)</h3>
+      <div class="grid2">
+        <div><div id="chartTimePsa" class="chart"></div></div>
+        <div><div id="chartTimeTest" class="chart"></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2>Patient view</h2>
+        <div class="right"><select id="selCase" aria-label="Choose a patient"></select></div>
+      </div>
+      <p class="small">PSA and the selected test over time for one patient; the dashed line marks the diagnosis date.</p>
+      <div class="grid2">
+        <div><div id="chartCasePsa" class="chart"></div></div>
+        <div><div id="chartCaseTest" class="chart"></div></div>
+      </div>
+    </section>
+
+    <p class="notice">⚠️ For exploratory research only — correlation does not imply causation. Repeated measurements from the same patient are not independent, so cross-check with "One point per patient" mode. PSA and some tests (e.g. testosterone) are affected by treatment such as hormone therapy.</p>
+  </div>
+
+  <footer>PSA Lab Correlation Analyzer · Open source · Built with SheetJS and Plotly.js</footer>
+</div>
+
+<script>
+'use strict';
+/* ---------------- Excel parsing in a Web Worker ---------------- */
+/* The parser runs in a Web Worker when possible (keeps the page responsive).
+   If the worker cannot start (e.g. page opened as a local file, or a blocked network),
+   it falls back to parsing on the main thread with the locally bundled library. */
+let XLSX_URL = '';
+try { XLSX_URL = new URL('vendor/xlsx.full.min.js', location.href).href; } catch (e) {}
+const PARSE_SRC = `
+const wbs = {};
+function header(ws){
+  if(!ws || !ws['!ref']) return [];
+  const rg = XLSX.utils.decode_range(ws['!ref']); rg.e.r = rg.s.r;
+  const r = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:'', range:rg});
+  return (r[0]||[]).map(String);
+}
+function pick(wb, kind){
+  for (const n of wb.SheetNames){
+    const h = header(wb.Sheets[n]);
+    if (kind==='lab' && (h.includes('檢驗名稱縮寫') || h.includes('檢體') || h.some(x=>/^specimen$/i.test(x.trim())))) return n;
+    if (kind==='dx' && h.some(x=>x.includes('確診') || /diagnos/i.test(x))) return n;
+  }
+  return wb.SheetNames[0];
+}
+function parseMsg(d){
+  const {buf, kind, sheet} = d;
+  if (buf) wbs[kind] = XLSX.read(buf, {type:'array', dense:true, cellHTML:false, cellText:false});
+  const wb = wbs[kind];
+  if (!wb) throw new Error('Workbook not loaded — please choose the file again');
+  const name = sheet || pick(wb, kind);
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:''});
+  return {names:wb.SheetNames, sheet:name, rows};
+}`;
+const WORKER_SRC = `importScripts(${JSON.stringify(XLSX_URL)});\n${PARSE_SRC}
+onmessage = e => {
+  try { postMessage(Object.assign({id:e.data.id, ok:true}, parseMsg(e.data))); }
+  catch(err) { postMessage({id:e.data.id, ok:false, error:String(err && err.message || err)}); }
+};`;
+const mainParse = new Function(PARSE_SRC + '\nreturn parseMsg;')();
+let worker = null, workerBroken = !/^https?:$/.test(location.protocol) || !XLSX_URL || typeof Worker === 'undefined', reqId = 0;
+const pending = {}, usedWorker = {};
+function getWorker() {
+  if (!worker) {
+    worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], {type: 'text/javascript'})));
+    worker.onmessage = e => { const p = pending[e.data.id]; delete pending[e.data.id]; if (p) e.data.ok ? p.res(e.data) : p.rej(new Error(e.data.error)); };
+    worker.onerror = ev => { ev.preventDefault && ev.preventDefault(); workerBroken = true; for (const k in pending) { pending[k].rej(Object.assign(new Error('worker failed'), {workerFailed: true})); delete pending[k]; } try { worker.terminate(); } catch (e) {} worker = null; };
+  }
+  return worker;
+}
+async function parseWorkbook(msg, buf) {
+  // buf: original ArrayBuffer (or null when only switching sheet)
+  const useWorker = !workerBroken && (buf ? true : usedWorker[msg.kind]);
+  if (useWorker) {
+    try {
+      const copy = buf ? buf.slice(0) : null;
+      const r = await new Promise((res, rej) => { const id = ++reqId; pending[id] = {res, rej}; getWorker().postMessage({...msg, buf: copy, id}, copy ? [copy] : []); });
+      usedWorker[msg.kind] = true; return r;
+    } catch (err) {
+      if (!err.workerFailed) throw err;
+      if (!buf) throw new Error('Please choose the file again');
+    }
+  }
+  if (typeof XLSX === 'undefined') throw new Error('Excel parser not found (vendor/xlsx.full.min.js). Open the GitHub Pages link in Chrome / Edge, or keep index.html together with the vendor folder');
+  usedWorker[msg.kind] = false;
+  await new Promise(r => setTimeout(r, 30)); // let the "Loading" message paint
+  return mainParse({...msg, buf});
+}
+
+/* ---------------- state ---------------- */
+const $ = s => document.querySelector(s);
+const state = { lab: null, dx: null, labMap: {}, dxMap: {}, ds: null, res: null, sel: null, caseId: null, cat: 'All' };
+
+const LAB_FIELDS = [
+  {key:'id', label:'Patient ID', names:['條碼編號','病歷號','病歷號碼','個案編號','ID','Patient ID','PatientID','Case ID','Barcode','MRN'], fb:2},
+  {key:'spec', label:'Specimen (B = blood)', names:['檢體','Specimen','Sample type','Specimen type'], fb:6},
+  {key:'test', label:'Test name', names:['檢驗名稱縮寫','檢驗名稱','檢驗項目名稱','Test name','Test','Test abbreviation','Analyte'], fb:8},
+  {key:'date', label:'Test date', names:['輸入日期','採檢日期','檢驗日期','驗證日期','Test date','Collection date','Date'], fb:9},
+  {key:'value', label:'Result', names:['檢驗結果值','結果值','檢驗值','Result','Result value','Value'], fb:11},
+  {key:'unit', label:'Unit (optional)', names:['檢驗值單位','單位','Unit','Units'], fb:19, optional:true},
+];
+const DX_FIELDS = [
+  {key:'id', label:'Patient ID', names:['條碼編號','病歷號','病歷號碼','個案編號','ID','Patient ID','PatientID','Case ID','Barcode','MRN'], fb:0},
+  {key:'date', label:'Diagnosis date', names:['首次確診攝護腺癌日期','首次確診日期','確診日期','Diagnosis date','First diagnosis date','Date of diagnosis'], contains:['確診','iagnos'], fb:1},
+];
+
+const CATS = [
+  ['Tumor markers', /psa|afp|cea|ca19|ca-125|scc|cyfra/i],
+  ['Glucose', /glucose|hb-?a1c|estimated ag|sugar|insulin|homa|c-peptide/i],
+  ['Lipids', /chol|hdl|ldl|triglyceride|vldl|lp ?\(a\)/i],
+  ['Blood cells', /^(wbc|rbc|hemoglobin|hematocrit|platelets|mcv|mch|mchc|rdw|pdw|mpv|segment|lymphocyte|monocyte|eosinophil|basophil|abs |band|myelocyte|meta-myelocyte|nucleated rbc|reticulocyte|atypical)/i],
+  ['Liver', /alt|ast|alk-p|bilirubin|albumin|γ-gt|gamma|total protein|^tp |ldh|a\/g|globulin/i],
+  ['Kidney', /creatinine|gfr|bun|uric acid|cystatin/i],
+  ['Electrolytes', /potassium|sodium|calcium|chloride|magnesium|inorganic p|^co2|^fe$|zinc/i],
+  ['Hormones', /testosterone|tsh|t3|t4|cortisol|prolactin|pth|dhea|igf|acth|leptin|adiponectin/i],
+  ['Inflammation/Coag.', /crp|esr|p\.t|inr|aptt|d-dimer|fibrinogen|procalcitonin|ferritin|nor\.plasma|il-6/i],
+];
+function category(name) { for (const [c, re] of CATS) if (re.test(name)) return c; return 'Other'; }
+
+/* ---------------- helpers ---------------- */
+function toDay(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return Math.floor(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()) / 864e5);
+  if (typeof v === 'number') {
+    if (v >= 19000101 && v <= 21001231) return ymd(Math.floor(v / 10000), Math.floor(v / 100) % 100, v % 100);
+    if (v >= 1000101 && v <= 1991231) return ymd(Math.floor(v / 10000) + 1911, Math.floor(v / 100) % 100, v % 100); // ROC (Taiwan) calendar YYYMMDD
+    if (v > 0 && v < 100000) return Math.floor(v) - 25569; // Excel serial
+    return null;
+  }
+  const s = String(v).trim();
+  let m;
+  if ((m = s.match(/^(\d{4})(\d{2})(\d{2})$/))) return ymd(+m[1], +m[2], +m[3]);
+  if ((m = s.match(/^(\d{3})(\d{2})(\d{2})$/))) return ymd(+m[1] + 1911, +m[2], +m[3]);
+  if ((m = s.match(/^(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/))) return ymd(+m[1], +m[2], +m[3]);
+  if ((m = s.match(/^(\d{2,3})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/))) return ymd(+m[1] + 1911, +m[2], +m[3]);
+  if (/^\d+(\.\d+)?$/.test(s)) return toDay(+s);
+  return null;
+}
+function ymd(y, mo, d) { if (mo < 1 || mo > 12 || d < 1 || d > 31) return null; return Math.floor(Date.UTC(y, mo - 1, d) / 864e5); }
+function dayStr(d) { return new Date(d * 864e5).toISOString().slice(0, 10); }
+function parseValue(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  let m = s.match(/^>\s*\d+(?:\.\d+)?\s*\(\s*(-?\d+(?:\.\d+)?)/); // e.g. eGFR ">60( 64 for reference)"
+  if (m) return +m[1];
+  m = s.match(/^(?:[<>≦≧≤≥]=?)?\s*(-?\d+(?:\.\d+)?)/);
+  return m ? +m[1] : null;
+}
+const median = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; };
+function quantile(sorted, q) { const p = (sorted.length - 1) * q, b = Math.floor(p); return sorted[b + 1] !== undefined ? sorted[b] + (p - b) * (sorted[b + 1] - sorted[b]) : sorted[b]; }
+function pearson(x, y) {
+  const n = x.length; let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += x[i]; my += y[i]; }
+  mx /= n; my /= n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const a = x[i] - mx, b = y[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : NaN;
+}
+function ranks(a) {
+  const idx = a.map((v, i) => i).sort((i, j) => a[i] - a[j]); const r = new Array(a.length);
+  for (let i = 0; i < idx.length;) { let j = i; while (j + 1 < idx.length && a[idx[j + 1]] === a[idx[i]]) j++; const avg = (i + j) / 2 + 1; for (let k = i; k <= j; k++) r[idx[k]] = avg; i = j + 1; }
+  return r;
+}
+const spearman = (x, y) => pearson(ranks(x), ranks(y));
+function gammaln(x) { const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5]; let y = x, t = x + 5.5; t -= (x + 0.5) * Math.log(t); let s = 1.000000000190015; for (const k of c) s += k / ++y; return -t + Math.log(2.5066282746310005 * s / x); }
+function betacf(a, b, x) {
+  const FP = 1e-300; let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap; if (Math.abs(d) < FP) d = FP; d = 1 / d; let h = d;
+  for (let m = 1; m <= 300; m++) { const m2 = 2 * m; let aa = m * (b - m) * x / ((qam + m2) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < FP) d = FP; c = 1 + aa / c; if (Math.abs(c) < FP) c = FP; d = 1 / d; h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2)); d = 1 + aa * d; if (Math.abs(d) < FP) d = FP; c = 1 + aa / c; if (Math.abs(c) < FP) c = FP; d = 1 / d; const del = d * c; h *= del; if (Math.abs(del - 1) < 3e-14) break; }
+  return h;
+}
+function ibeta(a, b, x) { if (x <= 0) return 0; if (x >= 1) return 1; const bt = Math.exp(gammaln(a + b) - gammaln(a) - gammaln(b) + a * Math.log(x) + b * Math.log(1 - x)); return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b; }
+function pFromR(r, n) { if (!isFinite(r) || n < 3) return NaN; if (Math.abs(r) >= 1) return 0; const df = n - 2, t2 = r * r * df / (1 - r * r); return ibeta(df / 2, 0.5, df / (df + t2)); }
+function bh(ps) {
+  const idx = ps.map((p, i) => i).filter(i => isFinite(ps[i])).sort((i, j) => ps[i] - ps[j]); const m = idx.length, q = ps.map(() => NaN); let prev = 1;
+  for (let k = m - 1; k >= 0; k--) { const i = idx[k]; prev = Math.min(prev, ps[i] * m / (k + 1)); q[i] = prev; }
+  return q;
+}
+function strength(r) { const a = Math.abs(r); return a < 0.1 ? 'Negligible' : a < 0.3 ? 'Weak' : a < 0.5 ? 'Moderate' : 'Strong'; }
+const fmt = (v, d = 3) => (v === null || !isFinite(v)) ? '—' : (+v).toFixed(d);
+const fmtP = p => !isFinite(p) ? '—' : p < 0.001 ? '<0.001' : p.toFixed(3);
+const fmtN = n => n.toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+function setStatus(msg) { const el = $('#status'); el.textContent = msg; el.classList.toggle('hidden', !msg); }
+
+/* ---------------- file handling ---------------- */
+function setupDrop(kind, dropSel, inputSel) {
+  const drop = $(dropSel), input = $(inputSel);
+  input.addEventListener('change', () => { if (input.files[0]) loadFile(kind, input.files[0]); });
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(kind, f); });
+}
+async function loadFile(kind, file) { loadBuffer(kind, await file.arrayBuffer(), file.name); }
+async function loadBuffer(kind, buf, name, sheet) {
+  const info = kind === 'lab' ? $('#infoLab') : $('#infoDx');
+  info.innerHTML = `Loading ${esc(name)}… (large files may take a few seconds)`;
+  try {
+    const t0 = performance.now();
+    const r = await parseWorkbook({kind, sheet}, buf);
+    state[kind] = {name, names: r.names, sheet: r.sheet, rows: r.rows};
+    const header = (r.rows[0] || []).map(String);
+    state[kind + 'Map'] = detectCols(header, kind === 'lab' ? LAB_FIELDS : DX_FIELDS);
+    renderFileInfo(kind, ((performance.now() - t0) / 1000).toFixed(1));
+    renderMapping(kind);
+    (kind === 'lab' ? $('#dropLab') : $('#dropDx')).classList.add('done');
+    tryBuild();
+  } catch (err) {
+    info.innerHTML = `<span class="err">Could not read file: </span>${esc(err.message)}`;
+  }
+}
+function renderFileInfo(kind, secs) {
+  const s = state[kind], info = kind === 'lab' ? $('#infoLab') : $('#infoDx');
+  let html = `<span class="ok">✓ Loaded</span> ${esc(s.name)} · ${fmtN(Math.max(0, s.rows.length - 1))} rows`;
+  if (secs) html += ` · ${secs} s`;
+  if (s.names.length > 1) {
+    html += `<br>Sheet: <select data-kind="${kind}" class="sheetSel">${s.names.map(n => `<option ${n === s.sheet ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+  }
+  info.innerHTML = html;
+  const sel = info.querySelector('.sheetSel');
+  if (sel) sel.addEventListener('change', () => loadBuffer(kind, null, s.name, sel.value));
+}
+function detectCols(header, fields) {
+  const map = {};
+  for (const f of fields) {
+    let i = header.findIndex(h => f.names.includes(h.trim()));
+    if (i < 0) i = header.findIndex(h => f.names.some(n => h.includes(n)) || (f.contains && [].concat(f.contains).some(c => h.includes(c))));
+    if (i < 0) i = f.optional ? -1 : (f.fb < header.length ? f.fb : -1);
+    map[f.key] = i;
+  }
+  return map;
+}
+const colLetter = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+function renderMapping(kind) {
+  const fields = kind === 'lab' ? LAB_FIELDS : DX_FIELDS, map = state[kind + 'Map'], header = (state[kind].rows[0] || []).map(String);
+  const box = kind === 'lab' ? $('#mapLab') : $('#mapDx');
+  const title = kind === 'lab' ? 'Lab file' : 'Diagnosis file';
+  box.innerHTML = fields.map(f => `<div class="field"><label>${title}: ${f.label}</label><select data-key="${f.key}">
+    ${f.optional ? `<option value="-1">(none)</option>` : ''}
+    ${header.map((h, i) => `<option value="${i}" ${i === map[f.key] ? 'selected' : ''}>${colLetter(i)}: ${esc(h)}</option>`).join('')}</select></div>`).join('');
+  box.querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => { map[sel.dataset.key] = +sel.value; tryBuild(); }));
+}
+
+/* ---------------- dataset build ---------------- */
+function tryBuild() {
+  if (!state.lab || !state.dx) { setStatus(state.lab ? 'Please upload the diagnosis-date Excel file.' : 'Please upload the lab-results Excel file.'); return; }
+  setStatus('Preparing data…');
+  setTimeout(() => {
+    try { buildDataset(); populateControls(); runAnalysis(); }
+    catch (err) { console.error(err); setStatus('Data preparation failed: ' + err.message + ' (check the "Column mapping" settings)'); }
+  }, 20);
+}
+function buildDataset() {
+  const lm = state.labMap, dm = state.dxMap;
+  if ([lm.id, lm.spec, lm.test, lm.date, lm.value].some(i => i < 0)) throw new Error('Lab file is missing required columns');
+  if (dm.id < 0 || dm.date < 0) throw new Error('Diagnosis file is missing required columns');
+  const dx = new Map(); let dxBad = 0;
+  const dr = state.dx.rows;
+  for (let i = 1; i < dr.length; i++) {
+    const id = String(dr[i][dm.id] ?? '').trim(); if (!id) continue;
+    const d = toDay(dr[i][dm.date]); if (d === null) { dxBad++; continue; }
+    if (!dx.has(id) || d < dx.get(id)) dx.set(id, d);
+  }
+  const blood = ($('#optBlood').value || 'B').trim().toUpperCase();
+  const st = {rows: 0, blood: 0, urine: 0, other: 0, nonnum: 0, unmatched: 0, used: 0, dxBad};
+  const tests = new Map(), pts = new Map(), unmatchedIds = new Set();
+  const lr = state.lab.rows, hdrSpec = String(lr[0][lm.spec]);
+  for (let i = 1; i < lr.length; i++) {
+    const r = lr[i]; const spec = String(r[lm.spec] ?? '').trim().toUpperCase();
+    if (!spec || spec === hdrSpec) continue;
+    st.rows++;
+    if (spec !== blood) { if (spec === 'U') st.urine++; else st.other++; continue; }
+    st.blood++;
+    const id = String(r[lm.id] ?? '').trim();
+    if (!dx.has(id)) { st.unmatched++; unmatchedIds.add(id); continue; }
+    const test = String(r[lm.test] ?? '').trim(); if (!test) continue;
+    const day = toDay(r[lm.date]); if (day === null) continue;
+    let T = tests.get(test);
+    if (!T) { T = {name: test, n: 0, num: 0, ids: new Set(), units: new Map()}; tests.set(test, T); }
+    T.n++;
+    const v = parseValue(r[lm.value]);
+    if (v === null) { st.nonnum++; continue; }
+    T.num++; T.ids.add(id);
+    if (lm.unit >= 0) { const u = String(r[lm.unit] ?? '').trim(); if (u) T.units.set(u, (T.units.get(u) || 0) + 1); }
+    let P = pts.get(id); if (!P) { P = new Map(); pts.set(id, P); }
+    let arr = P.get(test); if (!arr) { arr = []; P.set(test, arr); }
+    arr.push({d: day, v}); st.used++;
+  }
+  for (const P of pts.values()) for (const arr of P.values()) arr.sort((a, b) => a.d - b.d);
+  for (const T of tests.values()) { let best = '', c = 0; for (const [u, k] of T.units) if (k > c) { best = u; c = k; } T.unit = best; T.cat = category(T.name); T.ok = T.num >= 10 && T.num / T.n >= 0.6; }
+  st.unmatchedIds = unmatchedIds.size;
+  state.ds = {dx, pts, tests, st};
+}
+function populateControls() {
+  const {tests} = state.ds;
+  const list = [...tests.values()].filter(t => t.ok).sort((a, b) => b.num - a.num);
+  const psaSel = $('#optPsa'), cur = psaSel.value;
+  const psaCands = list.filter(t => /psa/i.test(t.name)).concat(list.filter(t => !/psa/i.test(t.name)));
+  psaSel.innerHTML = psaCands.map(t => `<option value="${esc(t.name)}">${esc(t.name)} (${fmtN(t.num)} results)</option>`).join('');
+  const def = tests.has(cur) && tests.get(cur).ok ? cur : (list.find(t => t.name.toUpperCase() === 'PSA') || psaCands[0] || {}).name;
+  if (def) psaSel.value = def;
+}
+
+/* ---------------- analysis ---------------- */
+function getSettings() {
+  const period = $('#optPeriod').value;
+  let from = -Infinity, to = Infinity;
+  if (period === 'pre') to = -1;
+  else if (period === 'post') from = 0;
+  else if (period === 'y1') { from = -365; to = 365; }
+  else if (period === 'custom') { from = +$('#optFrom').value; to = +$('#optTo').value; }
+  return {psa: $('#optPsa').value, win: Math.max(0, +$('#optWin').value || 0), from, to, mode: $('#optMode').value, minN: Math.max(3, +$('#optMinN').value || 10)};
+}
+function nearest(arr, d) {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].d < d) lo = m + 1; else hi = m; }
+  let best = null;
+  if (lo < arr.length) best = arr[lo];
+  if (lo > 0 && (!best || d - arr[lo - 1].d <= best.d - d)) best = arr[lo - 1];
+  return best;
+}
+function pairsFor(testName, S) {
+  const {dx, pts} = state.ds;
+  const out = {x: [], y: [], id: [], d: [], dt: []};
+  for (const [id, P] of pts) {
+    const psa = P.get(S.psa), arr = P.get(testName); if (!psa || !arr) continue;
+    const dxd = dx.get(id); const px = [], py = [], pd = [];
+    for (const p of psa) {
+      const rel = p.d - dxd; if (rel < S.from || rel > S.to) continue;
+      const q = nearest(arr, p.d); if (!q || Math.abs(q.d - p.d) > S.win) continue;
+      px.push(q.v); py.push(p.v); pd.push(p.d);
+    }
+    if (!px.length) continue;
+    if (S.mode === 'patient') { out.x.push(median(px)); out.y.push(median(py)); out.id.push(id); out.d.push(null); out.dt.push(null); }
+    else for (let i = 0; i < px.length; i++) { out.x.push(px[i]); out.y.push(py[i]); out.id.push(id); out.d.push(pd[i]); out.dt.push(pd[i] - dxd); }
+  }
+  return out;
+}
+function runAnalysis() {
+  const S = getSettings(); if (!S.psa) { setStatus('No usable PSA test found — please check the column mapping.'); return; }
+  const {tests} = state.ds; const res = [];
+  let skipped = 0;
+  for (const T of tests.values()) {
+    if (!T.ok || T.name === S.psa) continue;
+    const pr = pairsFor(T.name, S); const n = pr.x.length;
+    if (n < S.minN) { if (n > 0) skipped++; continue; }
+    const rho = spearman(pr.x, pr.y);
+    if (!isFinite(rho)) { skipped++; continue; }
+    const rl = pearson(pr.x, pr.y.map(v => Math.log10(Math.max(v, 1e-3))));
+    res.push({name: T.name, cat: T.cat, unit: T.unit, n, nPat: new Set(pr.id).size, rho, p: pFromR(rho, n), rl, pl: pFromR(rl, n), pairs: pr});
+  }
+  const q = bh(res.map(r => r.p)); res.forEach((r, i) => r.q = q[i]);
+  res.sort((a, b) => Math.abs(b.rho) - Math.abs(a.rho));
+  state.res = {S, list: res, skipped};
+  if (!res.length) { setStatus('No test reached the minimum sample size. Try a wider pairing window or analysis period.'); $('#results').classList.add('hidden'); return; }
+  if (!state.sel || !res.find(r => r.name === state.sel)) state.sel = (res.find(r => r.p < 0.05 && !/psa/i.test(r.name) && r.nPat >= 10) || res.find(r => r.p < 0.05) || res[0]).name;
+  setStatus('');
+  $('#results').classList.remove('hidden');
+  renderAll();
+}
+
+/* ---------------- rendering ---------------- */
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function colors() { return {surface: cssv('--surface'), t1: cssv('--text-1'), t2: cssv('--text-2'), muted: cssv('--muted'), grid: cssv('--grid'), axis: cssv('--axis'), s1: cssv('--s1'), s2: cssv('--s2'), pos: cssv('--pos'), neg: cssv('--neg'), neutral: cssv('--neutral'), seq: [cssv('--seq-1'), cssv('--seq-2'), cssv('--seq-3'), cssv('--seq-4')]}; }
+function rgba(hex, a) { const h = hex.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; }
+function axis(c, o) { return Object.assign({gridcolor: c.grid, linecolor: c.axis, zerolinecolor: c.axis, tickcolor: c.axis, automargin: true, title: {font: {size: 12, color: c.t2}}}, o || {}); }
+function layout(o) {
+  const c = colors();
+  const base = {paper_bgcolor: c.surface, plot_bgcolor: c.surface, font: {family: 'system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif', color: c.t2, size: 12},
+    margin: {l: 56, r: 16, t: 12, b: 48}, hoverlabel: {bgcolor: c.surface, bordercolor: c.axis, font: {color: c.t1}}, showlegend: false, barcornerradius: 4,
+    legend: {orientation: 'h', x: 0, y: 1.08, font: {color: c.t2}}};
+  const out = Object.assign(base, o);
+  out.xaxis = axis(c, o.xaxis); out.yaxis = axis(c, o.yaxis);
+  return out;
+}
+const PCFG = {responsive: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'], toImageButtonOptions: {format: 'png', scale: 2}};
+const plot = (id, data, lay) => { document.getElementById(id).style.height = (lay.height || 360) + 'px'; return Plotly.react(id, data, lay, PCFG); };
+const curRes = () => state.res.list.find(r => r.name === state.sel);
+
+function renderAll() { renderKpis(); renderSummary(); renderChips(); renderBar(); renderTable(); renderDetailSelect(); renderDetail(); renderCaseSelect(); renderCase(); }
+
+function renderKpis() {
+  const {st, dx, pts} = state.ds, L = state.res.list;
+  const k = [[fmtN(dx.size), 'Diagnosed patients (diagnosis file)'], [fmtN(pts.size), 'Patients with blood tests'], [fmtN(st.used), 'Blood test results included'], [fmtN(st.urine + st.other), 'Non-blood records excluded'],
+    [fmtN(L.length), 'Blood tests analyzed'], [fmtN(L.filter(r => r.p < 0.05).length), 'Significant correlations (p<0.05)']];
+  $('#kpis').innerHTML = k.map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+}
+function periodText(S) {
+  if (S.from === -Infinity && S.to === Infinity) return 'all time';
+  if (S.from === -Infinity) return `before diagnosis (≤ ${S.to} days)`;
+  if (S.to === Infinity) return `on/after diagnosis`;
+  return `${S.from} to ${S.to} days from diagnosis`;
+}
+function renderSummary() {
+  const {S, list, skipped} = state.res, {st} = state.ds;
+  const sig = list.filter(r => r.p < 0.05), sigQ = list.filter(r => r.q < 0.05);
+  const pos = sig.filter(r => r.rho > 0).slice(0, 5), neg = sig.filter(r => r.rho < 0).slice(0, 5);
+  const item = r => `<b>${esc(r.name)}</b> (ρ=${fmt(r.rho, 2)}, ${strength(r.rho).toLowerCase()}, n=${r.n})`;
+  const li = [];
+  li.push(`Using <b>${esc(S.psa)}</b> as the anchor, other blood tests were paired within <b>±${S.win} days</b> of each PSA test. Period: <b>${periodText(S)}</b>; unit of analysis: <b>${S.mode === 'patient' ? 'one point per patient' : 'every pair'}</b>.`);
+  li.push(`<b>${list.length}</b> blood tests analyzed: <b>${sig.length}</b> with p&lt;0.05, and <b>${sigQ.length}</b> still significant after multiple-comparison (FDR) correction.${skipped ? ` ${skipped} more were skipped for too few samples.` : ''}`);
+  li.push(pos.length ? `Strongest <b>positive</b> correlations with PSA: ${pos.map(item).join(', ')}.` : 'No significant positive correlations.');
+  li.push(neg.length ? `Strongest <b>negative</b> correlations with PSA: ${neg.map(item).join(', ')}.` : 'No significant negative correlations.');
+  const groups = ['Glucose', 'Lipids', 'Blood cells'].map(c => {
+    const g = list.filter(r => r.cat === c); if (!g.length) return null;
+    const s = g.filter(r => r.p < 0.05);
+    return `${c}: ${s.length} of ${g.length} significant${s.length ? ' (' + s.map(r => `${esc(r.name)} ${r.rho > 0 ? '↑' : '↓'}`).join(', ') + ')' : ''}`;
+  }).filter(Boolean);
+  if (groups.length) li.push(groups.join('; ') + '.');
+  const notes = [];
+  if (st.unmatchedIds) notes.push(`${st.unmatchedIds} patients in the lab file are not in the diagnosis file (${fmtN(st.unmatched)} records) and were excluded`);
+  if (st.dxBad) notes.push(`${st.dxBad} diagnosis dates could not be read`);
+  if (st.nonnum) notes.push(`${fmtN(st.nonnum)} non-numeric results (e.g. Negative, ---) were skipped; values below the detection limit such as "<0.008" use the limit value`);
+  if (notes.length) li.push(`<span class="muted">${notes.join('; ')}.</span>`);
+  if (S.mode === 'pair') li.push(`<span class="muted">Tip: in "Every pair" mode, repeated measurements from the same patient are all counted. Switch to "One point per patient" to check the results hold.</span>`);
+  $('#summary').innerHTML = `<ul>${li.map(x => `<li>${x}</li>`).join('')}</ul>`;
+}
+function renderChips() {
+  const cats = ['All', ...new Set(state.res.list.map(r => r.cat))];
+  const order = ['All', 'Glucose', 'Lipids', 'Blood cells', 'Liver', 'Kidney', 'Electrolytes', 'Hormones', 'Tumor markers', 'Inflammation/Coag.', 'Other'];
+  cats.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (!cats.includes(state.cat)) state.cat = 'All';
+  $('#chips').innerHTML = cats.map(c => `<button type="button" class="chip" aria-pressed="${c === state.cat}" data-cat="${esc(c)}">${esc(c)}${c === 'All' ? '' : ` (${state.res.list.filter(r => r.cat === c).length})`}</button>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { state.cat = b.dataset.cat; renderChips(); renderBar(); renderTable(); }));
+}
+const filtered = () => state.res.list.filter(r => state.cat === 'All' || r.cat === state.cat);
+function renderBar() {
+  const c = colors();
+  const L = [...filtered()].sort((a, b) => a.rho - b.rho);
+  const col = L.map(r => r.p >= 0.05 ? c.neutral : r.rho > 0 ? c.pos : c.neg);
+  const h = Math.max(220, L.length * 22 + 70);
+  plot('chartBar', [{
+    type: 'bar', orientation: 'h', x: L.map(r => r.rho), y: L.map(r => r.name),
+    marker: {color: col, line: {color: L.map(r => r.name === state.sel ? c.t1 : c.surface), width: L.map(r => r.name === state.sel ? 2 : 1)}},
+    customdata: L.map(r => [r.n, r.nPat, fmtP(r.p), fmtP(r.q), strength(r.rho), r.cat]),
+    hovertemplate: '<b>%{y}</b> (%{customdata[5]})<br>ρ = %{x:.3f} (%{customdata[4]})<br>p = %{customdata[2]}, q = %{customdata[3]}<br>Pairs %{customdata[0]}, patients %{customdata[1]}<extra></extra>'
+  }], layout({height: h, margin: {l: 130, r: 24, t: 8, b: 44}, bargap: 0.25,
+    xaxis: {title: {text: 'Spearman ρ (with PSA)'}, range: [-1, 1], zeroline: true, zerolinewidth: 1.5, dtick: 0.25},
+    yaxis: {gridcolor: 'rgba(0,0,0,0)', tickfont: {size: 12, color: c.t1}}}));
+  const el = $('#chartBar');
+  el.removeAllListeners && el.removeAllListeners('plotly_click');
+  el.on('plotly_click', ev => { if (ev.points[0]) selectTest(ev.points[0].y); });
+}
+function renderTable() {
+  const L = filtered();
+  const head = `<thead><tr><th>Test</th><th>Category</th><th>Unit</th><th>Pairs</th><th>Patients</th><th>Spearman ρ</th><th>p</th><th>q (FDR)</th><th>r (log PSA)</th><th>Strength</th><th>Direction</th></tr></thead>`;
+  const body = L.map(r => `<tr data-name="${esc(r.name)}" class="${r.name === state.sel ? 'sel' : ''}">
+    <td>${esc(r.name)}</td><td><span class="badge">${esc(r.cat)}</span></td><td>${esc(r.unit || '')}</td><td>${r.n}</td><td>${r.nPat}</td>
+    <td class="${r.p < 0.05 ? 'sig' : ''}">${fmt(r.rho)}</td><td class="${r.p < 0.05 ? 'sig' : ''}">${fmtP(r.p)}</td><td>${fmtP(r.q)}</td>
+    <td>${fmt(r.rl)}</td><td>${strength(r.rho)}</td><td>${r.p >= 0.05 ? '—' : r.rho > 0 ? 'Positive ↑' : 'Negative ↓'}</td></tr>`).join('');
+  $('#tbl').innerHTML = head + `<tbody>${body}</tbody>`;
+  $('#tbl').querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', () => selectTest(tr.dataset.name)));
+}
+function selectTest(name) {
+  state.sel = name; renderBar(); renderTable(); renderDetailSelect(); renderDetail(); renderCaseSelect(); renderCase();
+  $('#detailTitle').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function renderDetailSelect() {
+  const sel = $('#selTest');
+  sel.innerHTML = state.res.list.map(r => `<option value="${esc(r.name)}" ${r.name === state.sel ? 'selected' : ''}>${esc(r.name)} (ρ=${fmt(r.rho, 2)})</option>`).join('');
+}
+function renderDetail() {
+  const r = curRes(); if (!r) return;
+  const c = colors(), S = state.res.S, pr = r.pairs, unit = r.unit ? ` (${r.unit})` : '';
+  const psaUnit = state.ds.tests.get(S.psa)?.unit || 'ng/mL';
+  $('#detailTitle').textContent = `${S.psa} × ${r.name}`;
+  // scatter + trend (log10 PSA ~ x)
+  const ly = pr.y.map(v => Math.log10(Math.max(v, 1e-3)));
+  const n = pr.x.length, mx = pr.x.reduce((a, b) => a + b, 0) / n, my = ly.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (pr.x[i] - mx) * (ly[i] - my); sxx += (pr.x[i] - mx) ** 2; }
+  const b = sxx ? sxy / sxx : 0, a = my - b * mx;
+  const xs = [...pr.x].sort((p, q) => p - q), x0 = xs[0], x1 = xs[xs.length - 1];
+  const hover = pr.id.map((id, i) => pr.d[i] !== null ? `${id}<br>${dayStr(pr.d[i])} (${pr.dt[i]} days from diagnosis)` : `${id} (patient median)`);
+  plot('chartScatter', [
+    {type: 'scattergl', mode: 'markers', name: 'Observed', x: pr.x, y: pr.y.map(v => Math.max(v, 1e-3)), text: hover,
+      marker: {size: 8, color: rgba(c.s1, 0.55), line: {color: c.surface, width: 1}},
+      hovertemplate: '%{text}<br>' + esc(r.name) + ' = %{x}<br>PSA = %{y}<extra></extra>'},
+    {type: 'scatter', mode: 'lines', name: 'Trend (log-PSA linear fit)', x: [x0, x1], y: [10 ** (a + b * x0), 10 ** (a + b * x1)], line: {color: c.s2, width: 2}, hoverinfo: 'skip'}
+  ], layout({height: 360, showlegend: true, legend: {orientation: 'h', x: 0, y: 1.12},
+    xaxis: {title: {text: r.name + unit}}, yaxis: {type: 'log', dtick: 1, title: {text: `${S.psa} (${psaUnit}, log scale)`}}}));
+  // box by PSA group
+  const groups = [['< 4', v => v < 4], ['4–10', v => v >= 4 && v < 10], ['10–20', v => v >= 10 && v < 20], ['≥ 20', v => v >= 20]];
+  const traces = groups.map(([g, f], gi) => {
+    const vals = pr.x.filter((x, i) => f(pr.y[i]));
+    return {type: 'box', y: vals, name: `PSA ${g}<br>n=${vals.length}`, marker: {color: c.seq[gi], size: 4}, line: {color: c.seq[gi], width: 1.5}, fillcolor: rgba(c.seq[gi], 0.25), boxpoints: 'outliers', hoverlabel: {bgcolor: c.surface}};
+  });
+  $('#boxTitle').textContent = `${r.name} by PSA group (ng/mL)`;
+  plot('chartBox', traces, layout({height: 360, yaxis: {title: {text: r.name + unit}}, xaxis: {gridcolor: 'rgba(0,0,0,0)'}}));
+  // time course
+  timeChart('chartTimePsa', S.psa, true, c.s1);
+  timeChart('chartTimeTest', r.name, false, c.s1);
+}
+function timeChart(div, test, log, color) {
+  const c = colors(), {dx, pts, tests} = state.ds, BIN = 3;
+  const bins = new Map();
+  for (const [id, P] of pts) {
+    const arr = P.get(test); if (!arr) continue; const dxd = dx.get(id);
+    for (const m of arr) {
+      const mon = (m.d - dxd) / 30.4375; const b = Math.floor(mon / BIN); if (b < -12 || b > 24) continue;
+      let B = bins.get(b); if (!B) { B = new Map(); bins.set(b, B); }
+      if (!B.has(id)) B.set(id, []); B.get(id).push(m.v);
+    }
+  }
+  const keys = [...bins.keys()].filter(k => bins.get(k).size >= 3).sort((a, b) => a - b);
+  const X = [], med = [], q1 = [], q3 = [], nn = [];
+  for (const k of keys) {
+    const v = [...bins.get(k).values()].map(median).sort((a, b) => a - b);
+    X.push(k * BIN + BIN / 2); med.push(quantile(v, 0.5)); q1.push(quantile(v, 0.25)); q3.push(quantile(v, 0.75)); nn.push(v.length);
+  }
+  const unit = tests.get(test)?.unit; const fix = v => log ? Math.max(v, 1e-3) : v;
+  plot(div, [
+    {type: 'scatter', mode: 'lines', x: X, y: q3.map(fix), line: {width: 0}, hoverinfo: 'skip', showlegend: false},
+    {type: 'scatter', mode: 'lines', x: X, y: q1.map(fix), line: {width: 0}, fill: 'tonexty', fillcolor: rgba(color, 0.15), hoverinfo: 'skip', name: 'IQR'},
+    {type: 'scatter', mode: 'lines+markers', x: X, y: med.map(fix), name: 'Median', line: {color, width: 2}, marker: {size: 8, color, line: {color: c.surface, width: 2}},
+      customdata: X.map((x, i) => [nn[i], fmt(q1[i], 2), fmt(q3[i], 2)]),
+      hovertemplate: `~%{x:.1f} months from diagnosis<br>Median %{y}<br>IQR %{customdata[1]} – %{customdata[2]}<br>Patients %{customdata[0]}<extra>${esc(test)}</extra>`}
+  ], layout({height: 300, title: {text: `${test}${unit ? ` (${unit})` : ''}`, x: 0, xanchor: 'left', font: {size: 13, color: c.t1}}, margin: {l: 56, r: 16, t: 36, b: 44},
+    xaxis: {title: {text: 'Months from diagnosis'}, zeroline: false},
+    yaxis: log ? {type: 'log', dtick: 1} : {},
+    shapes: [{type: 'line', x0: 0, x1: 0, yref: 'paper', y0: 0, y1: 1, line: {color: c.muted, width: 1.5, dash: 'dash'}}],
+    annotations: [{x: 0, yref: 'paper', y: 1, text: 'Diagnosis', showarrow: false, xanchor: 'left', yanchor: 'top', font: {size: 11, color: c.t2}}]}));
+}
+function renderCaseSelect() {
+  const r = curRes(); const S = state.res.S, {pts} = state.ds;
+  const ids = [...pts.entries()].filter(([, P]) => P.has(S.psa) && P.has(r.name)).map(([id, P]) => [id, P.get(S.psa).length, P.get(r.name).length]).sort((a, b) => b[1] - a[1]);
+  const sel = $('#selCase');
+  if (!ids.find(x => x[0] === state.caseId)) state.caseId = ids[0]?.[0] || null;
+  sel.innerHTML = ids.map(([id, a, b]) => `<option value="${esc(id)}" ${id === state.caseId ? 'selected' : ''}>${esc(id)} (PSA ×${a} / ${esc(r.name)} ×${b})</option>`).join('');
+}
+function renderCase() {
+  const r = curRes(); const S = state.res.S, {pts, dx, tests} = state.ds, c = colors();
+  if (!state.caseId) { Plotly.purge('chartCasePsa'); Plotly.purge('chartCaseTest'); return; }
+  const P = pts.get(state.caseId), dxs = dayStr(dx.get(state.caseId));
+  const all = [...P.get(S.psa), ...P.get(r.name)].map(m => m.d); const lo = Math.min(...all, dx.get(state.caseId)) - 30, hi = Math.max(...all, dx.get(state.caseId)) + 30;
+  const one = (div, test, log, color) => {
+    const arr = P.get(test), unit = tests.get(test)?.unit;
+    plot(div, [{type: 'scatter', mode: 'lines+markers', x: arr.map(m => dayStr(m.d)), y: arr.map(m => log ? Math.max(m.v, 1e-3) : m.v), line: {color, width: 2}, marker: {size: 8, color, line: {color: c.surface, width: 2}},
+      customdata: arr.map(m => m.d - dx.get(state.caseId)), hovertemplate: `%{x} (%{customdata} days from diagnosis)<br>${esc(test)} = %{y}<extra></extra>`}],
+    layout({height: 280, title: {text: `${test}${unit ? ` (${unit})` : ''}`, x: 0, xanchor: 'left', font: {size: 13, color: c.t1}}, margin: {l: 56, r: 16, t: 36, b: 40},
+      xaxis: {type: 'date', range: [dayStr(lo), dayStr(hi)]}, yaxis: log ? {type: 'log', dtick: 1} : {},
+      shapes: [{type: 'line', x0: dxs, x1: dxs, yref: 'paper', y0: 0, y1: 1, line: {color: c.muted, width: 1.5, dash: 'dash'}}],
+      annotations: [{x: dxs, yref: 'paper', y: 1, text: 'Diagnosis ' + dxs, showarrow: false, xanchor: 'left', yanchor: 'top', font: {size: 11, color: c.t2}}]}));
+  };
+  one('chartCasePsa', S.psa, true, c.s1);
+  one('chartCaseTest', r.name, false, c.s1);
+}
+
+/* ---------------- CSV export ---------------- */
+function downloadCSV(name, rows) {
+  const csv = '﻿' + rows.map(r => r.map(v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$('#dlTable').addEventListener('click', () => {
+  const S = state.res.S;
+  downloadCSV(`PSA_correlation_${S.mode}_pm${S.win}days.csv`, [['Test', 'Category', 'Unit', 'Pairs', 'Patients', 'Spearman_rho', 'p', 'q_FDR', 'Pearson_r_logPSA', 'p_logPSA', 'Strength'],
+    ...state.res.list.map(r => [r.name, r.cat, r.unit, r.n, r.nPat, r.rho.toFixed(4), r.p, r.q, isFinite(r.rl) ? r.rl.toFixed(4) : '', r.pl, strength(r.rho)])]);
+});
+$('#dlPairs').addEventListener('click', () => {
+  const r = curRes(), S = state.res.S, pr = r.pairs;
+  downloadCSV(`paired_data_${S.psa}_${r.name.replace(/[\\/:*?"<>|]/g, '_')}.csv`, [['Patient ID', 'PSA date', 'Days from diagnosis', S.psa, r.name],
+    ...pr.x.map((x, i) => [pr.id[i], pr.d[i] !== null ? dayStr(pr.d[i]) : '(patient median)', pr.dt[i] ?? '', pr.y[i], x])]);
+});
+
+/* ---------------- controls & theme ---------------- */
+if (typeof XLSX === 'undefined' || typeof Plotly === 'undefined') {
+  setStatus('⚠️ Could not load the analysis components (vendor folder). Open the GitHub Pages link in Chrome / Edge, or keep index.html in the same place as the vendor folder (download the whole folder, not just index.html).');
+}
+setupDrop('lab', '#dropLab', '#fileLab');
+setupDrop('dx', '#dropDx', '#fileDx');
+['#optPsa', '#optWin', '#optMode', '#optMinN', '#optFrom', '#optTo'].forEach(s => $(s).addEventListener('change', () => { if (state.ds) runAnalysis(); }));
+$('#optPeriod').addEventListener('change', () => { $('#customWrap').classList.toggle('hidden', $('#optPeriod').value !== 'custom'); if (state.ds) runAnalysis(); });
+$('#optBlood').addEventListener('change', () => tryBuild());
+$('#selTest').addEventListener('change', e => selectTest(e.target.value));
+$('#selCase').addEventListener('change', e => { state.caseId = e.target.value; renderCase(); });
+
+const THEMES = ['auto', 'light', 'dark'], THEME_LABEL = {auto: 'Auto', light: 'Light', dark: 'Dark'};
+let theme = 'auto';
+try { theme = localStorage.getItem('psa-theme-en') || 'auto'; } catch (e) {}
+function applyTheme() {
+  if (theme === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+  $('#themeBtn').textContent = 'Theme: ' + THEME_LABEL[theme];
+  if (state.res && state.res.list.length) renderAll();
+}
+$('#themeBtn').addEventListener('click', () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; try { localStorage.setItem('psa-theme-en', theme); } catch (e) {} applyTheme(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (theme === 'auto') applyTheme(); });
+applyTheme();
+
+window.PSATool = {loadBuffer, state};
+</script>
+</body>
+</html>
